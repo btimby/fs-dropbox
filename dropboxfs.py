@@ -273,6 +273,9 @@ class DropboxFS(FS):
         info['size'] = info.pop('bytes', 0)
         info['isdir'] = info.pop('is_dir', False)
         info['isfile'] = not info['isdir']
+        mtime = time.strptime(info.pop('modified'), '%a, %d %b %Y %H:%M:%S %z')
+        info['mtime'] = mtime
+        info['modified_time'] = datetime.datetime.fromtimestamp(mtime)
         if path == '/':
             info['mime'] = 'virtual/dropbox'
         return info
