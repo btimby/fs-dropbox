@@ -4,20 +4,18 @@ from distutils.core import setup
 
 name = 'dropboxfs'
 version = '0.1'
-release = '1'
+release = '2'
 versrel = version + '-' + release
+readme = 'README.rst'
 download_url = 'https://github.com/downloads/btimby/fs-dropbox' \
                            '/' + name + '-' + versrel + '.tar.gz'
-description = """\
-A pyFilesystem backend for the Dropbox API.
-"""
-
+long_description = file(readme).read()
 
 setup(
     name = name,
     version = versrel,
     description = 'A pyFilesystem backend for the Dropbox API.',
-    long_description = description,
+    long_description = long_description,
     author = 'Ben Timby',
     author_email = 'btimby@gmail.com',
     maintainer = 'Ben Timby',
