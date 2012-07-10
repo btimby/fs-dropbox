@@ -13,6 +13,7 @@ import optparse
 import datetime
 import tempfile
 import os.path
+from UserDict import UserDict
 
 from fs.base import *
 from fs.path import *
@@ -90,6 +91,20 @@ class CacheItem(object):
             timestamp = time.time()
         self.timestamp = timestamp
 
+    def add_child(self, name):
+        if self.children is None:
+            self.children = [name]
+        else:
+            self.children.append(name)
+
+    def del_child(self, name):
+        if self.children is None:
+            return
+        i = self.children.index(name)
+        if i == -1:
+            return
+        self.children.pop(i)
+
     def _get_expired(self):
         if self.timestamp <= time.time() - CACHE_TTL:
             return True
@@ -99,15 +114,28 @@ class CacheItem(object):
         self.timestamp = time.time()
 
 
+class DropboxCache(UserDict):
+    def set(self, path, metadata):
+        self[path] = CacheItem(metadata)
+        dname, bname = pathsplit(path)
+        item = self.get(dname)
+        if item:
+            item.add_child(bname)
+
+    def pop(self, path, default=None):
+        UserDict.pop(self, path, default)
+        dname, bname = pathsplit(path)
+        item = self.get(dname)
+        if item:
+            item.del_child(bname)
+
+
 class DropboxClient(client.DropboxClient):
     """A wrapper around the official DropboxClient. This wrapper performs
     caching as well as converting errors to fs exceptions."""
     def __init__(self, *args, **kwargs):
-        super(DropboxCache, self).__init__(*args, **kwargs)
-        self.cache = {}
-
-    def clear_cache(self):
-        self.cache.clear()
+        super(DropboxClient, self).__init__(*args, **kwargs)
+        self.cache = DropboxCache()
 
     # Below we split the DropboxClient metadata() method into two methods
     # metadata() and children(). This allows for more fine-grained fetches
@@ -117,29 +145,40 @@ class DropboxClient(client.DropboxClient):
         "Gets metadata for a given path."
         item = self.cache.get(path)
         if not item or item.metadata is None or item.expired:
-            metadata = super(DropboxCache, self).metadata(path, list=False)
+            metadata = super(DropboxClient, self).metadata(path, include_deleted=False, list=False)
+            if metadata.get('is_deleted', False):
+                raise ResourceNotFoundError(path)
             item = self.cache[path] = CacheItem(metadata)
         # Copy the info so the caller cannot affect our cache.
         return dict(item.metadata.items())
 
     def children(self, path):
         "Gets children of a given path."
+        update, hash = False, None
         item = self.cache.get(path)
-        if not item or item.children is None or item.expired:
-            # We might have up-to-date metadata for this path.
-            if not item.expired and item.metadata:
-                # in that case, if the metadata indicates that the
-                # path is not a directory, we should refuse to try
-                # to list it.
-                if item.metadata.get('is_dir'):
-                    # TODO: find the proper fs Exception to raise here.
+        if item:
+            if item.expired:
+                update = True
+                if item.metadata and item.children:
+                    hash = item.metadata['hash']
+            else:
+                if not item.metadata.get('is_dir'):
                     raise ResourceInvalidError(path)
-            hash = None
-            # Use the hash to detect unchanged listings (if available).
-            if not item.children is None and not item.metadata is None:
-                hash = item.metadata['hash']
+            if not item.children:
+                update = True
+        else:
+            update = True
+        if update:
             try:
-                metadata = super(DropboxCache, self).metadata(path, hash=hash, list=True)
+                metadata = super(DropboxClient, self).metadata(path, hash=hash, include_deleted=False, list=True)
+                children = []
+                contents = metadata.pop('contents')
+                for child in contents:
+                    if child.get('is_deleted', False):
+                        continue
+                    children.append(basename(child['path']))
+                    self.cache[child['path']] = CacheItem(child)
+                item = self.cache[path] = CacheItem(metadata, children)
             except rest.ErrorResponse, e:
                 if not item or e.status != 304:
                     raise
@@ -147,53 +186,46 @@ class DropboxClient(client.DropboxClient):
                 # hash is still valid (as far as Dropbox is concerned),
                 # so just renew it and keep using it.
                 item.renew()
-            children = []
-            contents = metadata.pop('contents')
-            for child in contents:
-                name = child['name']
-                children.append(name)
-                self.cache[pathjoin(path, name)] = CacheItem(child)
-            item = self.cache[path] = CacheItem(metadata, children)
         return item.children
 
     def file_create_folder(self, path):
         "Add newly created directory to cache."
         try:
-            metadata = super(DropboxCache, self).file_create_folder(path)
+            metadata = super(DropboxClient, self).file_create_folder(path)
         except rest.ErrorResponse, e:
             if e.status == 404:
                 raise ParentDirectoryMissingError(path)
             if e.status == 403:
                 raise DestinationExistsError(path)
             raise
-        self.cache[path] = CacheItem(metadata)
+        self.cache.set(path, metadata)
 
     def file_copy(self, src, dst):
         try:
-            metadata = super(DropboxCache, self).file_copy(src, dst)
+            metadata = super(DropboxClient, self).file_copy(src, dst)
         except rest.ErrorResponse, e:
             if e.status == 404:
                 raise ResourceNotFoundError(src)
             if e.status == 403:
                 raise DestinationExistsError(dst)
             raise
-        self.cache[dst] = CacheItem(metadata)
+        self.cache.set(dst, metadata)
 
     def file_move(self, src, dst):
         try:
-            metadata = super(DropboxCache, self).file_move(src, dst)
+            metadata = super(DropboxClient, self).file_move(src, dst)
         except rest.ErrorResponse, e:
             if e.status == 404:
                 raise ResourceNotFoundError(src)
             if e.status == 403:
                 raise DestinationExistsError(dst)
             raise
-        self.cache[dst] = CacheItem(metadata)
         self.cache.pop(src, None)
+        self.cache.set(dst, metadata)
 
     def file_delete(self, path):
         try:
-            super(DropboxCache, self).file_delete(path)
+            super(DropboxClient, self).file_delete(path)
         except rest.ErrorResponse, e:
             if e.status == 404:
                 raise ResourceNotFoundError(path)
@@ -201,8 +233,8 @@ class DropboxClient(client.DropboxClient):
         self.cache.pop(path, None)
 
     def put_file(self, path, f, overwrite=False):
-        metadata = super(DropboxCache, self).put_file(path, f, overwrite=overwrite)
-        self.cache[path] = CacheItem(metadata)
+        metadata = super(DropboxClient, self).put_file(path, f, overwrite=overwrite)
+        self.cache.pop(dirname(path), None)
 
 
 def create_client(app_key, app_secret, access_type, token_key, token_secret):
@@ -213,7 +245,7 @@ def create_client(app_key, app_secret, access_type, token_key, token_secret):
 
 
 def metadata_to_info(metadata):
-    isdir = metadata.get('is_dir', false)
+    isdir = metadata.get('is_dir', False)
     info = {
         'size': metadata.get('bytes', 0),
         'isdir': isdir,
@@ -221,7 +253,7 @@ def metadata_to_info(metadata):
     }
     try:
         mtime = metadata['modified']
-        mtime = time.strptime(mtime, TIME_FORMAT)
+        mtime = time.mktime(time.strptime(mtime, TIME_FORMAT))
         info['modified_time'] = datetime.datetime.fromtimestamp(mtime)
     except KeyError:
         pass
@@ -405,7 +437,13 @@ def main():
         token_key, token_secret = options.token_key, options.token_secret
 
     fs = DropboxFS(options.app_key, options.app_secret, options.type, token_key, token_secret)
+
+    if fs.exists('/Bar'):
+        fs.removedir('/Bar')
     print fs.listdir('/')
+    fs.makedir('/Bar')
+    print fs.listdir('/')
+    print fs.listdir('/Foo')
 
 if __name__ == '__main__':
     main()
