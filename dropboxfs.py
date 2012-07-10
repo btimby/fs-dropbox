@@ -263,7 +263,6 @@ class DropboxFS(FS):
         return u"<DropboxFS: >"
 
     def getmeta(self, meta_name, default=NoDefaultMeta):
-        
         if meta_name == 'read_only':
             return self.read_only
         return super(DropboxFS, self).getmeta(meta_name, default)
@@ -315,23 +314,13 @@ class DropboxFS(FS):
 
     def listdir(self, path="/", wildcard=None, full=False, absolute=False, dirs_only=False, files_only=False):
         path = abspath(normpath(path))
-        try:
-            children = self.client.children(path)
-        except rest.ErrorResponse, e:
-            if e.status == 404:
-                raise ResourceNotFoundError(path)
-            raise
+        children = self.client.children(path)
         return self._listdir_helper(path, children, wildcard, full, absolute, dirs_only, files_only)
 
     @synchronize
     def getinfo(self, path):
         path = abspath(normpath(path))
-        try:
-            metadata = self.client.metadata(path)
-        except rest.ErrorResponse, e:
-            if e.status == 404:
-                raise ResourceNotFoundError(path)
-            raise
+        metadata = self.client.metadata(path)
         return metadata_to_info(metadata)
 
     def copy(self, src, dst, *args, **kwargs):
@@ -357,24 +346,11 @@ class DropboxFS(FS):
     def rename(self, src, dst, *args, **kwargs):
         src = abspath(normpath(src))
         dst = abspath(normpath(dst))
-        try:
-            self.client.file_move(src, dst)
-        except rest.ErrorResponse, e:
-            if e.status == 404:
-                raise ResourceNotFoundError(src)
-            raise
+        self.client.file_move(src, dst)
 
     def makedir(self, path, recursive=False, allow_recreate=False):
         path = abspath(normpath(path))
-        try:
-            self.client.file_create_folder(path)
-        except FSError:
-            # The DropboxClient already handles some fs specific error
-            # conditions.
-            raise
-        except Exception, e:
-            # Other ones depend on the caller...
-            raise OperationFailedError('makedir')
+        self.client.file_create_folder(path)
 
     # This does not work, httplib refuses to send a Content-Length: 0 header
     # even though the header is required. We can't make a 0-length file.
