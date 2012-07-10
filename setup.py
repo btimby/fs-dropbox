@@ -16,6 +16,10 @@ setup(
     version = versrel,
     description = 'A pyFilesystem backend for the Dropbox API.',
     long_description = long_description,
+    requires = [
+        'fs',
+        'dropbox',
+    ],
     author = 'Ben Timby',
     author_email = 'btimby@gmail.com',
     maintainer = 'Ben Timby',
