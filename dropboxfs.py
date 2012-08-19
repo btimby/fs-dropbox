@@ -145,7 +145,12 @@ class DropboxClient(client.DropboxClient):
         "Gets metadata for a given path."
         item = self.cache.get(path)
         if not item or item.metadata is None or item.expired:
-            metadata = super(DropboxClient, self).metadata(path, include_deleted=False, list=False)
+            try:
+                metadata = super(DropboxClient, self).metadata(path, include_deleted=False, list=False)
+            except rest.ErrorResponse, e:
+                if e.status == 404:
+                    raise ResourceNotFoundError(path)
+                raise
             if metadata.get('is_deleted', False):
                 raise ResourceNotFoundError(path)
             item = self.cache[path] = CacheItem(metadata)
@@ -245,16 +250,17 @@ def create_client(app_key, app_secret, access_type, token_key, token_secret):
 
 
 def metadata_to_info(metadata):
-    isdir = metadata.get('is_dir', False)
+    isdir = metadata.pop('is_dir', False)
     info = {
-        'size': metadata.get('bytes', 0),
+        'size': metadata.pop('bytes', 0),
         'isdir': isdir,
         'isfile': not isdir,
     }
     try:
-        mtime = metadata['modified']
-        mtime = time.mktime(time.strptime(mtime, TIME_FORMAT))
-        info['modified_time'] = datetime.datetime.fromtimestamp(mtime)
+        mtime = metadata.pop('modified', None)
+        if mtime:
+            mtime = info['mtime'] = time.mktime(time.strptime(mtime, TIME_FORMAT))
+            info['modified_time'] = datetime.datetime.fromtimestamp(mtime)
     except KeyError:
         pass
     return info
