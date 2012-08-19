@@ -1,12 +1,13 @@
 #!/bin/env python
 
+import os
 from distutils.core import setup
 
 name = 'dropboxfs'
 version = '0.1'
-release = '2'
+release = '4'
 versrel = version + '-' + release
-readme = 'README.rst'
+readme = os.path.join(os.path.dirname(__file__), 'README.rst')
 download_url = 'https://github.com/downloads/btimby/fs-dropbox' \
                            '/' + name + '-' + versrel + '.tar.gz'
 long_description = file(readme).read()
@@ -28,6 +29,7 @@ setup(
     download_url = download_url,
     license = 'GPLv3',
     py_modules=['dropboxfs'],
+    package_data={'': ['README.rst']},
     classifiers = (
           'Development Status :: 4 - Beta',
           'Intended Audience :: Developers',
