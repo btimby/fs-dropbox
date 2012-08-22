@@ -262,8 +262,8 @@ def metadata_to_info(metadata):
         if mtime:
             # Parse date/time from Dropbox as struct_time.
             mtime = time.strptime(mtime, TIME_FORMAT)
-            # Convert time to local timezone, store in st_mtime as timestamp.
-            mtime = info['st_mtime'] = calendar.timegm(mtime)
+            # Convert time to local timezone in seconds.
+            mtime = calendar.timegm(mtime)
             # Convert to datetime object, store in modified_time
             info['modified_time'] = datetime.datetime.fromtimestamp(mtime)
     except KeyError:
