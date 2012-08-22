@@ -12,6 +12,7 @@ import shutil
 import optparse
 import datetime
 import tempfile
+import calendar
 import os.path
 from UserDict import UserDict
 
@@ -259,7 +260,11 @@ def metadata_to_info(metadata):
     try:
         mtime = metadata.pop('modified', None)
         if mtime:
-            mtime = info['mtime'] = time.mktime(time.strptime(mtime, TIME_FORMAT))
+            # Parse date/time from Dropbox as struct_time.
+            mtime = time.strptime(mtime, TIME_FORMAT)
+            # Convert time to local timezone, store in st_mtime as timestamp.
+            mtime = info['st_mtime'] = calendar.timegm(mtime)
+            # Convert to datetime object, store in modified_time
             info['modified_time'] = datetime.datetime.fromtimestamp(mtime)
     except KeyError:
         pass
