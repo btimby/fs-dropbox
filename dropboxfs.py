@@ -30,6 +30,9 @@ from dropbox import session
 CACHE_TTL = 300
 # The format Dropbox uses for times.
 TIME_FORMAT = '%a, %d %b %Y %H:%M:%S +0000'
+# Max size for spooling to memory before using disk (5M).
+MAX_BUFFER = 1024**2*5
+
 
 class ContextManagerStream(object):
     def __init__(self, temp, name):
@@ -53,22 +56,29 @@ class ContextManagerStream(object):
         self.close()
 
 
+# TODO: these classes can probably be replaced with tempfile.SpooledTemporaryFile, however
+# I am unsure at this moment if doing so would be bad since it is only available in Python
+# 2.6+.
+
 class SpooledWriter(ContextManagerStream):
     """Spools bytes to a StringIO buffer until it reaches max_buffer. At that
     point it switches to a temporary file."""
-    def __init__(self, client, name, max_buffer=1024**2):
+    def __init__(self, client, name, max_buffer=MAX_BUFFER):
         self.client = client
         self.max_buffer = max_buffer
         self.bytes = 0
         super(SpooledWriter, self).__init__(StringIO(), name)
-
+    
     def __len__(self):
         return self.bytes
 
     def write(self, data):
         if self.temp.tell() + len(data) >= self.max_buffer:
+            # We reached the max_buffer size that we want to keep in memory. Switch
+            # to an on-disk temp file. Copy what has been written so far to it.
             temp = tempfile.TemporaryFile()
-            temp.write(self.temp.getvalue())
+            self.temp.seek(0)
+            shutil.copyfileobj(self.temp, temp)
             self.temp = temp
         self.temp.write(data)
         self.bytes += len(data)
@@ -80,6 +90,25 @@ class SpooledWriter(ContextManagerStream):
         self.temp.seek(0)
         self.client.put_file(self.name, self, overwrite=True)
         self.temp.close()
+
+
+class SpooledReader(ContextManagerStream):
+    """Reads the entire file from the remote server into a buffer or temporary file.
+    It can then satisfy read(), seek() and other calls using the local file."""
+    def __init__(self, client, name, max_buffer=MAX_BUFFER):
+        self.client = client
+        r = self.client.get_file(name)
+        self.bytes = int(r.getheader('Content-Length'))
+        if r > max_buffer:
+            temp = tempfile.TemporaryFile()
+        else:
+            temp = StringIO()
+        shutil.copyfileobj(r, temp)
+        temp.seek(0)
+        super(SpooledReader, self).__init__(temp, name)
+
+    def __len__(self):
+        return self.bytes
 
 
 class CacheItem(object):
@@ -318,7 +347,7 @@ class DropboxFS(FS):
     @synchronize
     def open(self, path, mode="rb", **kwargs):
         if 'r' in mode:
-            return ContextManagerStream(self.client.get_file(path), path)
+            return SpooledReader(self.client, path)
         else:
             return SpooledWriter(self.client, path)
 
