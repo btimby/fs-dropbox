@@ -32,8 +32,9 @@ CACHE_TTL = 300
 TIME_FORMAT = '%a, %d %b %Y %H:%M:%S +0000'
 
 class ContextManagerStream(object):
-    def __init__(self, temp):
+    def __init__(self, temp, name):
         self.temp = temp
+        self.name = name
 
     def __iter__(self):
         while True:
@@ -55,12 +56,11 @@ class ContextManagerStream(object):
 class SpooledWriter(ContextManagerStream):
     """Spools bytes to a StringIO buffer until it reaches max_buffer. At that
     point it switches to a temporary file."""
-    def __init__(self, client, path, max_buffer=1024**2):
+    def __init__(self, client, name, max_buffer=1024**2):
         self.client = client
-        self.path = path
         self.max_buffer = max_buffer
         self.bytes = 0
-        super(SpooledWriter, self).__init__(StringIO())
+        super(SpooledWriter, self).__init__(StringIO(), name)
 
     def __len__(self):
         return self.bytes
@@ -78,7 +78,7 @@ class SpooledWriter(ContextManagerStream):
         if hasattr(self.temp, 'flush'):
             self.temp.flush()
         self.temp.seek(0)
-        self.client.put_file(self.path, self, overwrite=True)
+        self.client.put_file(self.name, self, overwrite=True)
         self.temp.close()
 
 
@@ -250,7 +250,7 @@ def create_client(app_key, app_secret, access_type, token_key, token_secret):
     return DropboxClient(s)
 
 
-def metadata_to_info(metadata):
+def metadata_to_info(metadata, localtime=False):
     isdir = metadata.pop('is_dir', False)
     info = {
         'size': metadata.pop('bytes', 0),
@@ -262,8 +262,11 @@ def metadata_to_info(metadata):
         if mtime:
             # Parse date/time from Dropbox as struct_time.
             mtime = time.strptime(mtime, TIME_FORMAT)
-            # Convert time to local timezone in seconds.
-            mtime = calendar.timegm(mtime)
+            if localtime:
+                # Convert time to local timezone in seconds.
+                mtime = calendar.timegm(mtime)
+            else:
+                mtime = time.mktime(mtime)
             # Convert to datetime object, store in modified_time
             info['modified_time'] = datetime.datetime.fromtimestamp(mtime)
     except KeyError:
@@ -286,7 +289,8 @@ class DropboxFS(FS):
               'mime_type': 'virtual/dropbox',
              }
 
-    def __init__(self, app_key, app_secret, access_type, token_key, token_secret, thread_synchronize=True):
+    def __init__(self, app_key, app_secret, access_type, token_key,
+                 token_secret, localtime=False, thread_synchronize=True):
         """Create an fs that interacts with Dropbox.
 
         :param app_key: Your app key assigned by Dropbox.
@@ -298,6 +302,7 @@ class DropboxFS(FS):
         """
         super(DropboxFS, self).__init__(thread_synchronize=thread_synchronize)
         self.client = create_client(app_key, app_secret, access_type, token_key, token_secret)
+        self.localtime = localtime
 
     def __str__(self):
         return "<DropboxFS: >"
@@ -313,7 +318,7 @@ class DropboxFS(FS):
     @synchronize
     def open(self, path, mode="rb", **kwargs):
         if 'r' in mode:
-            return ContextManagerStream(self.client.get_file(path))
+            return ContextManagerStream(self.client.get_file(path), path)
         else:
             return SpooledWriter(self.client, path)
 
@@ -364,7 +369,7 @@ class DropboxFS(FS):
     def getinfo(self, path):
         path = abspath(normpath(path))
         metadata = self.client.metadata(path)
-        return metadata_to_info(metadata)
+        return metadata_to_info(metadata, localtime=self.localtime)
 
     def copy(self, src, dst, *args, **kwargs):
         src = abspath(normpath(src))
@@ -425,7 +430,7 @@ def main():
 
     # Instantiate a client one way or another.
     if not options.token_key and not options.token_secret:
-        s = session.DropboxSession(app_key, app_secret, access_type)
+        s = session.DropboxSession(options.app_key, options.app_secret, options.type)
         # Get a temporary token, so we can make oAuth calls.
         t = s.obtain_request_token()
         print "Please visit the following URL and authorize this application.\n"
@@ -449,6 +454,8 @@ def main():
 
     fs = DropboxFS(options.app_key, options.app_secret, options.type, token_key, token_secret)
 
+    print fs.getinfo('/')
+    print fs.getinfo('/Public')
     if fs.exists('/Bar'):
         fs.removedir('/Bar')
     print fs.listdir('/')
