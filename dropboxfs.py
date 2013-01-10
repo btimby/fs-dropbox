@@ -180,7 +180,7 @@ class DropboxClient(client.DropboxClient):
             except rest.ErrorResponse, e:
                 if e.status == 404:
                     raise ResourceNotFoundError(path)
-                raise
+                raise RemoteConnectionError(opname='metadata', status=e.status)
             if metadata.get('is_deleted', False):
                 raise ResourceNotFoundError(path)
             item = self.cache[path] = CacheItem(metadata)
@@ -216,7 +216,7 @@ class DropboxClient(client.DropboxClient):
                 item = self.cache[path] = CacheItem(metadata, children)
             except rest.ErrorResponse, e:
                 if not item or e.status != 304:
-                    raise
+                    raise RemoteConnectionError(opname='metadata', status=e.status)
                 # We have an item from cache (perhaps expired), but it's
                 # hash is still valid (as far as Dropbox is concerned),
                 # so just renew it and keep using it.
@@ -232,7 +232,7 @@ class DropboxClient(client.DropboxClient):
                 raise ParentDirectoryMissingError(path)
             if e.status == 403:
                 raise DestinationExistsError(path)
-            raise
+            raise RemoteConnectionError(opname='file_create_folder', status=e.status)
         self.cache.set(path, metadata)
 
     def file_copy(self, src, dst):
@@ -243,7 +243,7 @@ class DropboxClient(client.DropboxClient):
                 raise ResourceNotFoundError(src)
             if e.status == 403:
                 raise DestinationExistsError(dst)
-            raise
+            raise RemoteConnectionError(opname='file_copy', status=e.status)
         self.cache.set(dst, metadata)
 
     def file_move(self, src, dst):
@@ -254,7 +254,7 @@ class DropboxClient(client.DropboxClient):
                 raise ResourceNotFoundError(src)
             if e.status == 403:
                 raise DestinationExistsError(dst)
-            raise
+            raise RemoteConnectionError(opname='file_move', status=e.status)
         self.cache.pop(src, None)
         self.cache.set(dst, metadata)
 
@@ -268,7 +268,10 @@ class DropboxClient(client.DropboxClient):
         self.cache.pop(path, None)
 
     def put_file(self, path, f, overwrite=False):
-        metadata = super(DropboxClient, self).put_file(path, f, overwrite=overwrite)
+        try:
+            metadata = super(DropboxClient, self).put_file(path, f, overwrite=overwrite)
+        except res.ErrorResponse, e:
+            raise RemoteConnectionError(opname='put_file', status=e.status)
         self.cache.pop(dirname(path), None)
 
 
@@ -365,8 +368,9 @@ class DropboxFS(FS):
 
     def getsyspath(self, path, allow_none=False):
         "Returns a path as the Dropbox API specifies."
-        path = abspath(normpath(path))
-        return client.format_path(path)
+        if allow_none:
+            return None
+        return client.format_path(abspath(normpath(path)))
 
     def isdir(self, path):
         try:
