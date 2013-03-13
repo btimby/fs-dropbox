@@ -264,7 +264,7 @@ class DropboxClient(client.DropboxClient):
         except rest.ErrorResponse, e:
             if e.status == 404:
                 raise ResourceNotFoundError(path)
-            if e.status == 400:
+            if e.status == 400 and 'must not be empty' in str(e):
                 raise DirectoryNotEmptyError(path)
             raise
         self.cache.pop(path, None)
