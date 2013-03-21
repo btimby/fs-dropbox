@@ -130,8 +130,9 @@ class CacheItem(object):
     def del_child(self, name):
         if self.children is None:
             return
-        i = self.children.index(name)
-        if i == -1:
+        try:
+            i = self.children.index(name)
+        except ValueError:
             return
         self.children.pop(i)
 
@@ -153,11 +154,12 @@ class DropboxCache(UserDict):
             item.add_child(bname)
 
     def pop(self, path, default=None):
-        UserDict.pop(self, path, default)
+        value = UserDict.pop(self, path, default)
         dname, bname = pathsplit(path)
         item = self.get(dname)
         if item:
             item.del_child(bname)
+        return value
 
 
 class DropboxClient(client.DropboxClient):
