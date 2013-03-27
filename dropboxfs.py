@@ -178,11 +178,13 @@ class DropboxClient(client.DropboxClient):
         item = self.cache.get(path)
         if not item or item.metadata is None or item.expired:
             try:
-                metadata = super(DropboxClient, self).metadata(path, include_deleted=False, list=False)
+                metadata = super(DropboxClient, self).metadata(path,
+                    include_deleted=False, list=False)
             except rest.ErrorResponse, e:
                 if e.status == 404:
                     raise ResourceNotFoundError(path)
-                raise RemoteConnectionError(opname='metadata', status=e.status)
+                raise RemoteConnectionError(opname='metadata', path=path,
+                                            errno=e.status)
             if metadata.get('is_deleted', False):
                 raise ResourceNotFoundError(path)
             item = self.cache[path] = CacheItem(metadata)
@@ -207,7 +209,8 @@ class DropboxClient(client.DropboxClient):
             update = True
         if update:
             try:
-                metadata = super(DropboxClient, self).metadata(path, hash=hash, include_deleted=False, list=True)
+                metadata = super(DropboxClient, self).metadata(path, hash=hash,
+                    include_deleted=False, list=True)
                 children = []
                 contents = metadata.pop('contents')
                 for child in contents:
@@ -218,7 +221,8 @@ class DropboxClient(client.DropboxClient):
                 item = self.cache[path] = CacheItem(metadata, children)
             except rest.ErrorResponse, e:
                 if not item or e.status != 304:
-                    raise RemoteConnectionError(opname='metadata', status=e.status)
+                    raise RemoteConnectionError(opname='metadata', path=path,
+                                                errno=e.status)
                 # We have an item from cache (perhaps expired), but it's
                 # hash is still valid (as far as Dropbox is concerned),
                 # so just renew it and keep using it.
@@ -234,7 +238,8 @@ class DropboxClient(client.DropboxClient):
                 raise ParentDirectoryMissingError(path)
             if e.status == 403:
                 raise DestinationExistsError(path)
-            raise RemoteConnectionError(opname='file_create_folder', status=e.status)
+            raise RemoteConnectionError(opname='file_create_folder', path=path,
+                                        errno=e.status)
         self.cache.set(path, metadata)
 
     def file_copy(self, src, dst):
@@ -245,7 +250,8 @@ class DropboxClient(client.DropboxClient):
                 raise ResourceNotFoundError(src)
             if e.status == 403:
                 raise DestinationExistsError(dst)
-            raise RemoteConnectionError(opname='file_copy', status=e.status)
+            raise RemoteConnectionError(opname='file_copy', path=path,
+                                        errno=e.status)
         self.cache.set(dst, metadata)
 
     def file_move(self, src, dst):
@@ -256,7 +262,8 @@ class DropboxClient(client.DropboxClient):
                 raise ResourceNotFoundError(src)
             if e.status == 403:
                 raise DestinationExistsError(dst)
-            raise RemoteConnectionError(opname='file_move', status=e.status)
+            raise RemoteConnectionError(opname='file_move', path=path,
+                                        errno=e.status)
         self.cache.pop(src, None)
         self.cache.set(dst, metadata)
 
@@ -275,7 +282,8 @@ class DropboxClient(client.DropboxClient):
         try:
             metadata = super(DropboxClient, self).put_file(path, f, overwrite=overwrite)
         except res.ErrorResponse, e:
-            raise RemoteConnectionError(opname='put_file', status=e.status)
+            raise RemoteConnectionError(opname='put_file', path=path,
+                                        errno=e.status)
         self.cache.pop(dirname(path), None)
 
 
