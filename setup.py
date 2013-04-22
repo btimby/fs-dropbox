@@ -5,11 +5,9 @@ from distutils.core import setup
 
 name = 'dropboxfs'
 version = '0.1'
-release = '7'
+release = '10'
 versrel = version + '-' + release
 readme = os.path.join(os.path.dirname(__file__), 'README.rst')
-download_url = 'https://github.com/downloads/btimby/fs-dropbox' \
-                           '/' + name + '-' + versrel + '.tar.gz'
 long_description = file(readme).read()
 
 setup(
@@ -26,7 +24,6 @@ setup(
     maintainer = 'Ben Timby',
     maintainer_email = 'btimby@gmail.com',
     url = 'http://github.com/btimby/fs-dropbox/',
-    download_url = download_url,
     license = 'GPLv3',
     py_modules=['dropboxfs'],
     package_data={'': ['README.rst']},
