@@ -281,7 +281,7 @@ class DropboxClient(client.DropboxClient):
     def put_file(self, path, f, overwrite=False):
         try:
             metadata = super(DropboxClient, self).put_file(path, f, overwrite=overwrite)
-        except res.ErrorResponse, e:
+        except rest.ErrorResponse, e:
             raise RemoteConnectionError(opname='put_file', path=path,
                                         errno=e.status)
         self.cache.pop(dirname(path), None)
